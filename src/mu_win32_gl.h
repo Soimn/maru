@@ -33,8 +33,8 @@ PFNWGLSWAPINTERVALEXTPROC wglSwapIntervalEXT                 = 0;
 LIST_GL_CORE_FUNCS
 #undef MU_X
 
-GLuint DrawRectProgram     = 0;
-GLuint DefaultVAO          = 0;
+GLuint DrawRectProgram = 0;
+GLuint DefaultVAO      = 0;
 
 void
 ClearScreen(V4 color)
@@ -49,12 +49,13 @@ PushRect(Rect rect, V4 corner_roundness, f32 line_thickness, V4 color)
 {
 	glBindVertexArray(DefaultVAO);
 	glUseProgram(DrawRectProgram);
-	glUniform2f(0, (rect.min.x - line_thickness/2)*(2/Engine->window_dim.x) - 1, -((rect.min.y - line_thickness/2)*(2/Engine->window_dim.y) - 1));
-	glUniform2f(1, (rect.max.x + line_thickness/2)*(2/Engine->window_dim.x) - 1, -((rect.max.y + line_thickness/2)*(2/Engine->window_dim.y) - 1));
-	glUniform4f(2, rect.min.x - line_thickness/2, Engine->window_dim.y - rect.max.y - line_thickness/2, rect.max.x + line_thickness/2, Engine->window_dim.y - rect.min.y + line_thickness/2);
-	glUniform4f(3, corner_roundness.x, corner_roundness.y, corner_roundness.z, corner_roundness.w);
-	glUniform1f(4, line_thickness);
-	glUniform4f(5, color.r, color.g, color.b, color.a);
+	glUniform2f(0, (rect.min.x - line_thickness)*(2/Engine->window_dim.x) - 1, -((rect.min.y - line_thickness)*(2/Engine->window_dim.y) - 1));
+	glUniform2f(1, (rect.max.x + line_thickness)*(2/Engine->window_dim.x) - 1, -((rect.max.y + line_thickness)*(2/Engine->window_dim.y) - 1));
+	glUniform4f(2, color.r, color.g, color.b, color.a);
+	glUniform2f(3, (rect.min.x + rect.max.x)/2, Engine->window_dim.y - (rect.min.y + rect.max.y)/2);
+	glUniform2f(4, (rect.max.x - rect.min.x + line_thickness)/2, (rect.max.y - rect.min.y + line_thickness)/2);
+	glUniform1f(5, line_thickness);
+	glUniform1f(6, corner_roundness.x);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glUseProgram(0);
 }
@@ -233,35 +234,28 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 
 		char* fragment_code =
 			"#version 450\n"
-			"layout(location=2) uniform vec4 bounding_box;\n"
-			"layout(location=3) uniform vec4 corner_roundness;\n"
-			"layout(location=4) uniform float line_thickness;\n"
-			"layout(location=5) uniform vec4 color;\n"
+			"\n"
+			"layout(location=2) uniform vec4 color;\n"
+			"layout(location=3) uniform vec2 center;\n"
+			"layout(location=4) uniform vec2 half_dim;\n"
+			"layout(location=5) uniform float line_thickness;\n"
+			"layout(location=6) uniform float roundness;\n"
+			"\n"
 			"out vec4 frag_color;\n"
-			"float length_sq(vec2 v) {\n"
-			"\treturn dot(v, v);\n"
-			"}\n"
-			"void main() {\n"
-			"\tvec4 b  = bounding_box;\n"
-			"\tvec4 c  = corner_roundness;\n"
-			"\tfloat l = line_thickness;\n"
-			"\tif (gl_FragCoord.x <= b.x + c.x && gl_FragCoord.y <= b.y + c.x && length_sq(vec2(gl_FragCoord.x - (b.x + c.x), gl_FragCoord.y - (b.y + c.x))) > c.x*c.x ||\n"
-			"\t    gl_FragCoord.x >= b.z - c.y && gl_FragCoord.y <= b.y + c.y && length_sq(vec2(gl_FragCoord.x - (b.z - c.y), gl_FragCoord.y - (b.y + c.y))) > c.y*c.y ||\n"
-			"\t    gl_FragCoord.x >= b.z - c.z && gl_FragCoord.y >= b.w - c.z && length_sq(vec2(gl_FragCoord.x - (b.z - c.z), gl_FragCoord.y - (b.w - c.z))) > c.z*c.z ||\n"
-			"\t    gl_FragCoord.x <= b.x + c.w && gl_FragCoord.y >= b.w - c.w && length_sq(vec2(gl_FragCoord.x - (b.x + c.w), gl_FragCoord.y - (b.w - c.w))) > c.w*c.w)\n"
-			"\t{\n"
-			"\t\tdiscard;\n"
-			"\t}\n"
-			"\telse if (gl_FragCoord.x >= b.x + l && gl_FragCoord.x <= b.z - l &&\n"
-			"\t         gl_FragCoord.y >= b.y + l && gl_FragCoord.y <= b.w - l &&\n"
-			"\t         !(gl_FragCoord.x <= b.x + c.x && gl_FragCoord.y <= b.y + c.x && length_sq(vec2(gl_FragCoord.x - (b.x + c.x), gl_FragCoord.y - (b.y + c.x))) > (c.x - l)*(c.x - l) ||\n"
-			"\t           gl_FragCoord.x >= b.z - c.y && gl_FragCoord.y <= b.y + c.y && length_sq(vec2(gl_FragCoord.x - (b.z - c.y), gl_FragCoord.y - (b.y + c.y))) > (c.y - l)*(c.y - l) ||\n"
-			"\t           gl_FragCoord.x >= b.z - c.z && gl_FragCoord.y >= b.w - c.z && length_sq(vec2(gl_FragCoord.x - (b.z - c.z), gl_FragCoord.y - (b.w - c.z))) > (c.z - l)*(c.z - l) ||\n"
-			"\t           gl_FragCoord.x <= b.x + c.w && gl_FragCoord.y >= b.w - c.w && length_sq(vec2(gl_FragCoord.x - (b.x + c.w), gl_FragCoord.y - (b.w - c.w))) > (c.w - l)*(c.w - l)))\n"
-			"\t{\n"
-			"\t\tdiscard;\n"
-			"\t}\n"
+			"\n"
+			"void\n"
+			"main()\n"
+			"{\n"
+			"\t// based on box sdf learnt from: https://youtu.be/62-pRVZuS5c\n"
+			"\t//                rounding from: https://youtu.be/s5NGeUV2EyU\n"
+			"\t//              smoothstep from: https://youtu.be/60VoL-F-jIQ\n"
+			"\t//     and rescaling trick from: https://stackoverflow.com/questions/71926442/how-to-round-the-corners-of-an-sdf-without-changing-its-size-in-glsl\n"
+			"\tvec2 q = abs(gl_FragCoord.xy - center) - (half_dim - vec2(roundness, roundness));\n"
+			"\tfloat d = length(max(q, 0)) + min(max(q.x, q.y), 0)-roundness;\n"
 			"\tfrag_color = color;\n"
+			"\tfloat pad = 2;"
+			"\tfrag_color.a *= 1 - smoothstep(0, pad, d);\n"
+			"\tfrag_color.a *= smoothstep(0, pad, d + line_thickness);\n"
 			"}\n";
 
 		succeeded = false;
@@ -283,6 +277,8 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 			glCompileShader(fragment);
 
 			glGetShaderiv(fragment, GL_COMPILE_STATUS, &status);
+			char buffer[1024];
+			glGetShaderInfoLog(fragment, 1024, 0, buffer);
 			if (!status) break;
 
 			glAttachShader(DrawRectProgram, vertex);
