@@ -45,17 +45,27 @@ ClearScreen(V4 color)
 
 
 void
-PushRect(Rect rect, V4 corner_roundness, f32 line_thickness, V4 color)
+PushRect(Rect rect, V4 corner_radii, f32 line_thickness, V4 color)
 {
 	glBindVertexArray(DefaultVAO);
 	glUseProgram(DrawRectProgram);
-	glUniform2f(0, (rect.min.x - line_thickness)*(2/Engine->window_dim.x) - 1, -((rect.min.y - line_thickness)*(2/Engine->window_dim.y) - 1));
-	glUniform2f(1, (rect.max.x + line_thickness)*(2/Engine->window_dim.x) - 1, -((rect.max.y + line_thickness)*(2/Engine->window_dim.y) - 1));
-	glUniform4f(2, color.r, color.g, color.b, color.a);
-	glUniform2f(3, (rect.min.x + rect.max.x)/2, Engine->window_dim.y - (rect.min.y + rect.max.y)/2);
-	glUniform2f(4, (rect.max.x - rect.min.x + line_thickness)/2, (rect.max.y - rect.min.y + line_thickness)/2);
-	glUniform1f(5, line_thickness);
-	glUniform1f(6, corner_roundness.x);
+
+	// clip space vertex coordinates
+	// NOTE: 2 pixel padding to enable anti aliasing
+	f32 pad = 2; 
+	V2 min_p = V2((rect.min.x - (line_thickness + pad))*(2/Engine->window_dim.x) - 1, -((rect.min.y - (line_thickness + pad))*(2/Engine->window_dim.y) - 1));
+	V2 max_p = V2((rect.max.x + (line_thickness + pad))*(2/Engine->window_dim.x) - 1, -((rect.max.y + (line_thickness + pad))*(2/Engine->window_dim.y) - 1));
+	glUniform4f(0, min_p.x, min_p.y, max_p.x, max_p.y);
+
+	glUniform4f(1, color.r, color.g, color.b, color.a);
+
+	V2 center   = V2((rect.min.x + rect.max.x)/2, Engine->window_dim.y - (rect.min.y + rect.max.y)/2);
+	V2 half_dim = V2((rect.max.x - rect.min.x + line_thickness)/2, (rect.max.y - rect.min.y + line_thickness)/2);
+	glUniform4f(2, center.x, center.y, half_dim.x, half_dim.y);
+
+	glUniform1f(3, line_thickness);
+	glUniform4f(4, corner_radii.x, corner_radii.y, corner_radii.w, corner_radii.z);
+
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glUseProgram(0);
 }
@@ -225,9 +235,10 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 
 		char* vertex_code =
 			"#version 450\n"
-			"layout(location=0) uniform vec2 min_p;\n"
-			"layout(location=1) uniform vec2 max_p;\n"
+			"layout(location=0) uniform vec4 minmax_p;\n"
 			"void main() {\n"
+			"\tvec2 min_p = minmax_p.xy;\n"
+			"\tvec2 max_p = minmax_p.zw;\n"
 			"\tgl_Position.xy = vec2(mix(max_p.x, min_p.x, ((gl_VertexID+5)%6)/3), mix(max_p.y, min_p.y, ((gl_VertexID+1)%6)/3));\n"
 			"\tgl_Position.zw = vec2(0, 1);\n"
 			"}\n";
@@ -235,11 +246,10 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 		char* fragment_code =
 			"#version 450\n"
 			"\n"
-			"layout(location=2) uniform vec4 color;\n"
-			"layout(location=3) uniform vec2 center;\n"
-			"layout(location=4) uniform vec2 half_dim;\n"
-			"layout(location=5) uniform float line_thickness;\n"
-			"layout(location=6) uniform float roundness;\n"
+			"layout(location=1) uniform vec4 color;\n"
+			"layout(location=2) uniform vec4 center_hdim;\n"
+			"layout(location=3) uniform float line_thickness;\n"
+			"layout(location=4) uniform vec4 corner_radii; // corners are labeled 0, 1, 3, 2 cw from -1,-1, corner_radii has w and z flipped so this can be an index op\n"
 			"\n"
 			"out vec4 frag_color;\n"
 			"\n"
@@ -250,12 +260,18 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 			"\t//                rounding from: https://youtu.be/s5NGeUV2EyU\n"
 			"\t//              smoothstep from: https://youtu.be/60VoL-F-jIQ\n"
 			"\t//     and rescaling trick from: https://stackoverflow.com/questions/71926442/how-to-round-the-corners-of-an-sdf-without-changing-its-size-in-glsl\n"
-			"\tvec2 q = abs(gl_FragCoord.xy - center) - (half_dim - vec2(roundness, roundness));\n"
-			"\tfloat d = length(max(q, 0)) + min(max(q.x, q.y), 0)-roundness;\n"
-			"\tfrag_color = color;\n"
+			"\tvec2 center   = center_hdim.xy;\n"
+			"\tvec2 half_dim = center_hdim.wz;\n"
+			"\n"
+			"\tvec2 q  = gl_FragCoord.xy - center;\n"
+			"\t// selecting radius for current corner based on the labeling 0,1,3,2 cw from -1,-1 with the input corner_radii swizzled from 0,1,2,3 to 0,1,3,2 to avoid this in the shader\n"
+			"\tfloat r = corner_radii[int(sign(q.x) > 0) + 2*int(sign(q.y) > 0)];\n"
+			"\tvec2 rq = abs(q) - (half_dim - vec2(r)); // -r in both dims to shrink the box such that an enlargment of r will give it the original size\n"
+			"\tfloat d = length(max(rq, 0)) + min(max(rq.x, rq.y), 0) - r; // distance to box border enlarged by r (which round of corners, r < sqrt(2)*r)\n"
+			"\n"
 			"\tfloat pad = 2;"
-			"\tfrag_color.a *= 1 - smoothstep(0, pad, d);\n"
-			"\tfrag_color.a *= smoothstep(0, pad, d + line_thickness);\n"
+			"\tfrag_color    = color;\n"
+			"\tfrag_color.a *= 1 - smoothstep(0, pad, abs(d + line_thickness/2) - line_thickness/2);\n"
 			"}\n";
 
 		succeeded = false;
