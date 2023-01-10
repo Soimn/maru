@@ -125,6 +125,48 @@ V3_HexFromRgb(V3 rgb)
 	return ((u32)rgb.r*255 << 16) | ((u32)rgb.g*255 << 8) | (u32)rgb.b*255;
 }
 
+typedef struct M2
+{
+	union
+	{
+		struct
+		{
+			V2 i;
+			V2 j;
+		};
+		f32 e[4];
+	};
+} M2;
+
+typedef struct M3
+{
+	union
+	{
+		struct
+		{
+			V3 i;
+			V3 j;
+			V3 k;
+		};
+		f32 e[9];
+	};
+} M3;
+
+typedef struct M4
+{
+	union
+	{
+		struct
+		{
+			V4 i;
+			V4 j;
+			V4 k;
+			V4 l;
+		};
+		f32 e[16];
+	};
+} M4;
+
 typedef struct Rect
 {
 	V2 min;

@@ -90,11 +90,13 @@ typedef struct String
 
 TYPEDEF_FUNC(void, ClearScreen_Func, (V4 color));
 TYPEDEF_FUNC(void, PushRect_Func, (Rect rect, V4 corner_roundness, f32 line_thickness, V4 color));
+TYPEDEF_FUNC(void, PushLine_Func, (V2 p0, V2 p1, f32 line_thickness, V4 color));
 
 typedef struct Renderer_Link
 {
 	ClearScreen_Func* ClearScreen;
 	PushRect_Func* PushRect;
+	PushLine_Func* PushLine;
 } Renderer_Link;
 
 typedef struct Engine_Link

@@ -33,8 +33,8 @@ PFNWGLSWAPINTERVALEXTPROC wglSwapIntervalEXT                 = 0;
 LIST_GL_CORE_FUNCS
 #undef MU_X
 
-GLuint DrawRectProgram = 0;
-GLuint DefaultVAO      = 0;
+GLuint PushRectProgram = 0;
+GLuint PushRectVAO     = 0;
 
 void
 ClearScreen(V4 color)
@@ -43,24 +43,26 @@ ClearScreen(V4 color)
 	glClear(GL_COLOR_BUFFER_BIT);
 }
 
-
 void
 PushRect(Rect rect, V4 corner_radii, f32 line_thickness, V4 color)
 {
 	glBindVertexArray(DefaultVAO);
-	glUseProgram(DrawRectProgram);
+	glUseProgram(PushRectProgram);
 
 	// clip space vertex coordinates
 	// NOTE: 2 pixel padding to enable anti aliasing
 	f32 pad = 2; 
 	V2 min_p = V2((rect.min.x - (line_thickness + pad))*(2/Engine->window_dim.x) - 1, -((rect.min.y - (line_thickness + pad))*(2/Engine->window_dim.y) - 1));
 	V2 max_p = V2((rect.max.x + (line_thickness + pad))*(2/Engine->window_dim.x) - 1, -((rect.max.y + (line_thickness + pad))*(2/Engine->window_dim.y) - 1));
-	glUniform4f(0, min_p.x, min_p.y, max_p.x, max_p.y);
+
+	
+
+	glUniformMatrix4fv(1, 16, false, &t);
 
 	glUniform4f(1, color.r, color.g, color.b, color.a);
 
 	V2 center   = V2((rect.min.x + rect.max.x)/2, Engine->window_dim.y - (rect.min.y + rect.max.y)/2);
-	V2 half_dim = V2((rect.max.x - rect.min.x + line_thickness)/2, (rect.max.y - rect.min.y + line_thickness)/2);
+	V2 half_dim = V2((rect.max.x - rect.min.x)/2, (rect.max.y - rect.min.y)/2);
 	glUniform4f(2, center.x, center.y, half_dim.x, half_dim.y);
 
 	glUniform1f(3, line_thickness);
@@ -68,6 +70,11 @@ PushRect(Rect rect, V4 corner_radii, f32 line_thickness, V4 color)
 
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glUseProgram(0);
+}
+
+void
+PushLine(V2 p0, V2 p1, f32 line_thickness, V4 color)
+{
 }
 
 static void APIENTRY
@@ -92,7 +99,9 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 	HDC dummy_dc        = 0;
 	HGLRC dummy_context = 0;
 
-	dummy_window = CreateWindowExW(0, L"STATIC", L"OpenGL func ptr loading", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, 0, 0);
+	dummy_window = CreateWindowExW(0, L"STATIC", L"OpenGL func ptr loading", WS_OVERLAPPEDWINDOW,
+																 CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+																 0, 0, 0, 0);
 	if (dummy_window != 0)
 	{
 		dummy_dc = GetDC(dummy_window);
@@ -235,12 +244,10 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 
 		char* vertex_code =
 			"#version 450\n"
-			"layout(location=0) uniform vec4 minmax_p;\n"
+			"layout(location=0) uniform vec2 pos;\n"
+			"layout(location=1) uniform mat4 t;\n"
 			"void main() {\n"
-			"\tvec2 min_p = minmax_p.xy;\n"
-			"\tvec2 max_p = minmax_p.zw;\n"
-			"\tgl_Position.xy = vec2(mix(max_p.x, min_p.x, ((gl_VertexID+5)%6)/3), mix(max_p.y, min_p.y, ((gl_VertexID+1)%6)/3));\n"
-			"\tgl_Position.zw = vec2(0, 1);\n"
+			"\tgl_Position = t*vec4(pos.x, pos.y, 0, 1);\n"
 			"}\n";
 
 		char* fragment_code =
@@ -269,9 +276,10 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 			"\tvec2 rq = abs(q) - (half_dim - vec2(r)); // -r in both dims to shrink the box such that an enlargment of r will give it the original size\n"
 			"\tfloat d = length(max(rq, 0)) + min(max(rq.x, rq.y), 0) - r; // distance to box border enlarged by r (which round of corners, r < sqrt(2)*r)\n"
 			"\n"
-			"\tfloat pad = 2;"
+			"\tfloat pad = 2;\n"
 			"\tfrag_color    = color;\n"
-			"\tfrag_color.a *= 1 - smoothstep(0, pad, abs(d + line_thickness/2) - line_thickness/2);\n"
+			"\tif (line_thickness != 0) frag_color.a *= 1 - smoothstep(0, pad, abs(d) - line_thickness/2);\n"
+			"\telse                     frag_color.a *= smoothstep(pad, 0, d);\n"
 			"}\n";
 
 		succeeded = false;
@@ -279,7 +287,24 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 		{
 			GLint status;
 
-			DrawRectProgram = glCreateProgram();
+			// TODO: error checking
+			glGenVertexArrays(1, &UnitRectVAO);
+			glBindVertexArray(UnitRectVAO);
+
+			V2 unit_rect_verts[] = {
+				V2(-0.5, -0.5), V2( 0.5, -0.5), V2( 0.5,  0.5),
+				V2( 0.5,  0.5), V2(-0.5,  0.5), V2(-0.5, -0.5),
+			};
+
+			GLuint vbo;
+			glGenBuffers(1, &vbo);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(unit_rect_verts), unit_rect_verts, GL_STATIC_DRAW);
+			glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
+			glEnableVertexAttribArray(0);
+			glDeleteBuffers(1, &vbo);
+
+			PushRectProgram = glCreateProgram();
 
 			GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
 			glShaderSource(vertex, 1, &vertex_code, 0);
@@ -297,16 +322,16 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 			glGetShaderInfoLog(fragment, 1024, 0, buffer);
 			if (!status) break;
 
-			glAttachShader(DrawRectProgram, vertex);
-			glAttachShader(DrawRectProgram, fragment);
+			glAttachShader(PushRectProgram, vertex);
+			glAttachShader(PushRectProgram, fragment);
 
-			glLinkProgram(DrawRectProgram);
+			glLinkProgram(PushRectProgram);
 
-			glGetProgramiv(DrawRectProgram, GL_LINK_STATUS, &status);
+			glGetProgramiv(PushRectProgram, GL_LINK_STATUS, &status);
 			if (!status) break;
 
-			glValidateProgram(DrawRectProgram);
-			glGetProgramiv(DrawRectProgram, GL_VALIDATE_STATUS, &status);
+			glValidateProgram(PushRectProgram);
+			glGetProgramiv(PushRectProgram, GL_VALIDATE_STATUS, &status);
 			if (!status) break;
 
 			glDeleteShader(vertex);
@@ -314,18 +339,14 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 
 			succeeded = true;
 		} while (0);
-
-		if (succeeded)
-		{
-			glGenVertexArrays(1, &DefaultVAO);
-		}
 	}
 
 	if (succeeded)
 	{
 		*renderer_link = (Renderer_Link){
-			.ClearScreen     = &ClearScreen,
-			.PushRect        = &PushRect,
+			.ClearScreen = &ClearScreen,
+			.PushRect    = &PushRect,
+			.PushLine    = &PushLine,
 		};
 	}
 
