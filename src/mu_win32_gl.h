@@ -55,11 +55,11 @@ ClearScreen(V4 color)
 void
 PushRect(Rect rect, V4 corner_radii, f32 line_thickness, V4 color)
 {
-	V2 center = V2((rect.min.x + rect.max.x)/2, Engine->window_dim.y - (rect.min.y + rect.max.y)/2);
+	V2 center = V2((rect.min.x + rect.max.x)/2, (rect.min.y + rect.max.y)/2);
 	V2 dim    = V2_Sub(rect.max, rect.min);
 
 	f32 aa_pad = 2; // NOTE: 2 pixel padding for anti aliasing
-	V2 padded_dim  = V2(dim.x + line_thickness + aa_pad, dim.y + line_thickness + aa_pad);
+	V2 padded_dim  = V2(dim.x + line_thickness + 2*aa_pad, dim.y + line_thickness + 2*aa_pad);
 
 	M4 transform = {
 		.i = V4(2*padded_dim.x/Engine->window_dim.x,                                   0, 0, 0),
@@ -87,17 +87,13 @@ PushLine(V2 p0, V2 p1, f32 line_thickness, V4 color)
 {
 	glUseProgram(PushLineProgram);
 
-	// NOTE: flipping to y up to match opengl
-	p0.y = Engine->window_dim.y - p0.y;
-	p1.y = Engine->window_dim.y - p1.y;
-
 	V2 center  = V2((p1.x + p0.x)/2, (p1.y + p0.y)/2);
 	V2 p0p1    = V2_Sub(p1, p0);
 	f32 length = V2_Length(p0p1);
 	V2 p0p1_n  = V2_Scale(p0p1, 1/length);
 
 	f32 aa_pad = 2; // NOTE: 2 pixel padding for anti aliasing
-	V2 padded_dim = V2(line_thickness + aa_pad, length + aa_pad);
+	V2 padded_dim = V2(line_thickness + 2*aa_pad, length + 2*aa_pad);
 
 	f32 phi = (p0p1.y < 0 ? 1 : -1) * Acos(p0p1_n.x);
 	f32 s = Sin(phi);
@@ -115,8 +111,8 @@ PushLine(V2 p0, V2 p1, f32 line_thickness, V4 color)
 	glUniform4f(2, color.r, color.g, color.b, color.a);
 	glUniform4f(3, p0.x, p0.y, p1.x, p1.y);
 	glUniform2f(4, p0p1_n.x, p0p1_n.y);
-	glUniform1f(5, line_thickness);
-	glUniform1f(6, length);
+	glUniform1f(5, line_thickness/2);
+	glUniform1f(6, length/2);
 
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -355,77 +351,10 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 	/// Setup immediate mode rendering API
 	if (succeeded)
 	{
+		// TODO:
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		char* vertex_code =
-			"#version 450\n"
-			"layout(location=0) in vec2 pos;\n"
-			"layout(location=1) uniform mat4 transform;\n"
-			"void main() {\n"
-			"\tgl_Position = transform*vec4(pos.x, pos.y, 0, 1);\n"
-			"}\n";
-
-		char* fragment_code =
-			"#version 450\n"
-			"\n"
-			"layout(location=2) uniform vec4 color;\n"
-			"layout(location=3) uniform vec4 center_hdim;\n"
-			"layout(location=4) uniform float line_thickness;\n"
-			"layout(location=5) uniform vec4 corner_radii; // corners are labeled 0, 1, 3, 2 cw from -1,-1, corner_radii has w and z flipped so this can be an index op\n"
-			"\n"
-			"out vec4 frag_color;\n"
-			"\n"
-			"void\n"
-			"main()\n"
-			"{\n"
-			"\t// based on box sdf learnt from: https://youtu.be/62-pRVZuS5c\n"
-			"\t//                rounding from: https://youtu.be/s5NGeUV2EyU\n"
-			"\t//              smoothstep from: https://youtu.be/60VoL-F-jIQ\n"
-			"\t//     and rescaling trick from: https://stackoverflow.com/questions/71926442/how-to-round-the-corners-of-an-sdf-without-changing-its-size-in-glsl\n"
-			"\tvec2 center   = center_hdim.xy;\n"
-			"\tvec2 half_dim = center_hdim.wz;\n"
-			"\tfloat pad = 2;\n"
-			"\n"
-			"\tvec2 q  = gl_FragCoord.xy - center;\n"
-			"\t// selecting radius for current corner based on the labeling 0,1,3,2 cw from -1,-1 with the input corner_radii swizzled from 0,1,2,3 to 0,1,3,2 to avoid this in the shader\n"
-			"\tfloat r = corner_radii[int(sign(q.x) > 0) + 2*int(sign(q.y) > 0)];\n"
-			"\tvec2 rq = abs(q) - (half_dim - vec2(r)); // -r in both dims to shrink the box such that an enlargment of r will give it the original size\n"
-			"\tfloat d = length(max(rq, 0)) + min(max(rq.x, rq.y), 0) - r; // distance to box border enlarged by r (which round of corners, r < sqrt(2)*r)\n"
-			"\n"
-			"\tfrag_color = color;\n"
-			"\tif (line_thickness != 0) frag_color.a *= 1 - smoothstep(0, pad, abs(d) - line_thickness/2);\n"
-			"\telse                     frag_color.a *= smoothstep(pad, 0, d);\n"
-			"}\n";
-
-		char* line_fragment_code =
-			"#version 450\n"
-			"\n"
-			"layout(location=2) uniform vec4 color;\n"
-			"layout(location=3) uniform vec4 p0_and_p1;\n"
-			"layout(location=4) uniform vec2 p0p1;\n"
-			"layout(location=5) uniform float line_thickness;\n"
-			"layout(location=6) uniform float line_length;\n"
-			"\n"
-			"out vec4 frag_color;\n"
-			"\n"
-			"void\n"
-			"main()\n"
-			"{\n"
-			"\tvec2 p0   = p0_and_p1.xy;\n"
-			"\tvec2 p1   = p0_and_p1.zw;\n"
-			"\tvec2 v    = p0p1;\n"
-			"\tfloat pad = 2;\n"
-			"\n"
-			"\tvec2 p        = gl_FragCoord.xy - p0;\n"
-			"\tfloat p_dot_v = dot(p, v);\n"
-			"\tfloat d       = length(p - p_dot_v*v);\n"
-			"\n"
-			"\tfrag_color = color;\n"
-			"\tfrag_color.a *= 1 - smoothstep(0, pad, abs(p_dot_v - line_length/2) - line_length/2);\n"
-			"\tfrag_color.a *= 1 - smoothstep(0, pad, d - line_thickness/2);\n"
-			"}\n";
-
+		
 		succeeded = false;
 		do
 		{
@@ -446,6 +375,78 @@ Win32_InitGL(HWND window, HDC* dc, HGLRC* gl_context, Renderer_Link* renderer_li
 			glEnableVertexAttribArray(0);
 
 			glBindVertexArray(0);
+
+			char* vertex_code =
+				"#version 450\n"
+				"\n"
+				"layout(location=0) in vec2 pos;\n"
+				"layout(location=1) uniform mat4 transform;\n"
+				"\n"
+				"void\n"
+				"main()\n"
+				"{\n"
+				"\tgl_Position = transform*vec4(pos.x, pos.y, 0, 1);\n"
+				"}\n";
+
+			char* fragment_code =
+				"#version 450\n"
+				"\n"
+				"layout(location=2) uniform vec4 color;\n"
+				"layout(location=3) uniform vec4 center_hdim;\n"
+				"layout(location=4) uniform float line_thickness;\n"
+				"layout(location=5) uniform vec4 corner_radii; // corners are labeled 0, 1, 3, 2 cw from -1,-1, corner_radii has w and z flipped so this can be an index op\n"
+				"\n"
+				"out vec4 frag_color;\n"
+				"\n"
+				"void\n"
+				"main()\n"
+				"{\n"
+				"\t// based on box sdf learnt from: https://youtu.be/62-pRVZuS5c\n"
+				"\t//                rounding from: https://youtu.be/s5NGeUV2EyU\n"
+				"\t//              smoothstep from: https://youtu.be/60VoL-F-jIQ\n"
+				"\t//     and rescaling trick from: https://stackoverflow.com/questions/71926442/how-to-round-the-corners-of-an-sdf-without-changing-its-size-in-glsl\n"
+				"\tvec2 center   = center_hdim.xy;\n"
+				"\tvec2 half_dim = center_hdim.wz;\n"
+				"\tfloat pad     = 2;\n"
+				"\n"
+				"\tvec2 q  = gl_FragCoord.xy - center;\n"
+				"\t// selecting radius for current corner based on the labeling 0,1,3,2 cw from -1,-1 with the input corner_radii swizzled from 0,1,2,3 to 0,1,3,2 to avoid this in the shader\n"
+				"\tfloat r = corner_radii[int(sign(q.x) > 0) + 2*int(sign(q.y) > 0)];\n"
+				"\tvec2 rq = abs(q) - (half_dim - vec2(r));                    // -r in both dims to shrink the box such that an enlargment of r will give it the original size\n"
+				"\tfloat d = length(max(rq, 0)) + min(max(rq.x, rq.y), 0) - r; // distance to box border enlarged by r (which round of corners, r < sqrt(2)*r)\n"
+				"\n"
+				"\tfrag_color = color;\n"
+				"\tif (line_thickness != 0) frag_color.a *= 1 - smoothstep(0, pad, abs(d) - line_thickness/2); // line_thickness == 0 is used for switching to filled instead of outlined\n"
+				"\telse                     frag_color.a *= smoothstep(pad, 0, d);\n"
+				"}\n";
+
+			char* line_fragment_code =
+				"#version 450\n"
+				"\n"
+				"layout(location=2) uniform vec4 color;\n"
+				"layout(location=3) uniform vec4 p0_and_p1;\n"
+				"layout(location=4) uniform vec2 p0p1;\n"
+				"layout(location=5) uniform float half_line_thickness;\n"
+				"layout(location=6) uniform float half_line_length;\n"
+				"\n"
+				"out vec4 frag_color;\n"
+				"\n"
+				"void\n"
+				"main()\n"
+				"{\n"
+				"\tvec2 p0   = p0_and_p1.xy;\n"
+				"\tvec2 p1   = p0_and_p1.zw;\n"
+				"\tvec2 v    = p0p1;\n"
+				"\tfloat pad = 2;\n"
+				"\n"
+				"\tvec2 p        = gl_FragCoord.xy - p0;\n"
+				"\tfloat p_dot_v = dot(p, v);\n"
+				"\tfloat d       = length(p - p_dot_v*v);\n"
+				"\n"
+				"\tfrag_color = color;\n"
+				"\tfrag_color.a *= 1 - smoothstep(0, pad, abs(p_dot_v - half_line_length) - half_line_length);\n"
+				"\tfrag_color.a *= 1 - smoothstep(0, pad, d - half_line_thickness);\n"
+				"}\n";
 
 			if (!GL_CreateProgram(vertex_code, fragment_code, &PushRectProgram)) break;
 			if (!GL_CreateProgram(vertex_code, line_fragment_code, &PushLineProgram)) break;

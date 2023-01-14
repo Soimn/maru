@@ -144,7 +144,7 @@ WinMainCRTStartup()
 						RECT r;
 						GetClientRect(window, &r);
 						Engine->window_dim = V2(r.right - r.left, r.bottom - r.top);
-						Engine->mouse_pos = V2(p.x, p.y);
+						Engine->mouse_pos = V2(p.x, Engine->window_dim.y - p.y);
 						glViewport(0, 0, (GLsizei)Engine->window_dim.x, (GLsizei)Engine->window_dim.y);
 					}
 
