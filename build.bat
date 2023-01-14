@@ -45,6 +45,7 @@ if "%3" neq "" (
 )
 
 if not exist %build_dir% mkdir %build_dir%
+if not exist %run_dir%   mkdir %run_dir%
 cd %build_dir%
 
 if /I "%build_engine%" EQU "1" (

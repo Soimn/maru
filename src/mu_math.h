@@ -1,3 +1,68 @@
+// TODO: EVERYTHING
+
+typedef struct F32_Bits
+{
+	union
+	{
+		f32 f;
+		u32 bits;
+	};
+} F32_Bits;
+
+f32
+Squared(f32 n)
+{
+	return n*n;
+}
+
+f32
+Cubed(f32 n)
+{
+	return n*n*n;
+}
+
+f32
+Sqrt(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_sqrt_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Sin(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_sin_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Cos(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_cos_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Tan(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_tan_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Asin(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_asin_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Acos(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_acos_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
+f32
+Atan(f32 n)
+{
+	return (F32_Bits){ .bits = _mm_extract_ps(_mm_atan_ps(_mm_load_ss(&n)), 0) }.f;
+}
+
 typedef struct V2
 {
 	f32 x, y;
@@ -113,6 +178,78 @@ V4_Hadamard(V4 a, V4 b)
 	return V4(a.x*b.x, a.y*b.y, a.z*b.z, a.w*b.w);
 }
 
+f32
+V2_Inner(V2 a, V2 b)
+{
+	return a.x*b.x + a.y*b.y;
+}
+
+f32
+V3_Inner(V3 a, V3 b)
+{
+	return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+
+f32
+V4_Inner(V4 a, V4 b)
+{
+	return a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
+}
+
+f32
+V2_LengthSq(V2 a)
+{
+	return V2_Inner(a, a);
+}
+
+f32
+V3_LengthSq(V3 a)
+{
+	return V3_Inner(a, a);
+}
+
+f32
+V4_LengthSq(V4 a)
+{
+	return V4_Inner(a, a);
+}
+
+f32
+V2_Length(V2 a)
+{
+	return Sqrt(V2_Inner(a, a));
+}
+
+f32
+V3_Length(V3 a)
+{
+	return Sqrt(V3_Inner(a, a));
+}
+
+f32
+V4_Length(V4 a)
+{
+	return Sqrt(V4_Inner(a, a));
+}
+
+V2
+V2_Normalize(V2 a)
+{
+	return V2_Scale(a, 1/V2_Length(a));
+}
+
+V3
+V3_Normalize(V3 a)
+{
+	return V3_Scale(a, 1/V3_Length(a));
+}
+
+V4
+V4_Normalize(V4 a)
+{
+	return V4_Scale(a, 1/V4_Length(a));
+}
+
 V3
 V3_RgbFromHex(u32 hex)
 {
@@ -166,6 +303,78 @@ typedef struct M4
 		f32 e[16];
 	};
 } M4;
+
+V2
+M2_Row(M2 m, unsigned int i)
+{
+	ASSERT(i <= 1);
+
+	V2 rows[] = {
+		V2(m.i.x, m.j.x),
+		V2(m.i.y, m.j.y),
+	};
+
+	return rows[i];
+}
+
+V3
+M3_Row(M3 m, unsigned int i)
+{
+	ASSERT(i <= 2);
+
+	V3 rows[] = {
+		V3(m.i.x, m.j.x, m.k.x),
+		V3(m.i.y, m.j.y, m.k.y),
+		V3(m.i.z, m.j.z, m.k.z),
+	};
+
+	return rows[i];
+}
+
+V4
+M4_Row(M4 m, unsigned int i)
+{
+	ASSERT(i <= 3);
+
+	V4 rows[] = {
+		V4(m.i.x, m.j.x, m.k.x, m.l.x),
+		V4(m.i.y, m.j.y, m.k.y, m.l.y),
+		V4(m.i.z, m.j.z, m.k.z, m.l.z),
+		V4(m.i.w, m.j.w, m.k.w, m.l.w),
+	};
+
+	return rows[i];
+}
+
+M2
+M2_Mul(M2 a, M2 b)
+{
+	return (M2){
+		V2(V2_Inner(M2_Row(a, 0), b.i), V2_Inner(M2_Row(a, 0), b.j)),
+		V2(V2_Inner(M2_Row(a, 1), b.i), V2_Inner(M2_Row(a, 1), b.j)),
+	};
+}
+
+M3
+M3_Mul(M3 a, M3 b)
+{
+	return (M3){
+		V3(V3_Inner(M3_Row(a, 0), b.i), V3_Inner(M3_Row(a, 0), b.j), V3_Inner(M3_Row(a, 0), b.k)),
+		V3(V3_Inner(M3_Row(a, 1), b.i), V3_Inner(M3_Row(a, 1), b.j), V3_Inner(M3_Row(a, 1), b.k)),
+		V3(V3_Inner(M3_Row(a, 2), b.i), V3_Inner(M3_Row(a, 2), b.j), V3_Inner(M3_Row(a, 2), b.k)),
+	};
+}
+
+M4
+M4_Mul(M4 a, M4 b)
+{
+	return (M4){
+		V4(V4_Inner(M4_Row(a, 0), b.i), V4_Inner(M4_Row(a, 0), b.j), V4_Inner(M4_Row(a, 0), b.k), V4_Inner(M4_Row(a, 0), b.l)),
+		V4(V4_Inner(M4_Row(a, 1), b.i), V4_Inner(M4_Row(a, 1), b.j), V4_Inner(M4_Row(a, 1), b.k), V4_Inner(M4_Row(a, 1), b.l)),
+		V4(V4_Inner(M4_Row(a, 2), b.i), V4_Inner(M4_Row(a, 2), b.j), V4_Inner(M4_Row(a, 2), b.k), V4_Inner(M4_Row(a, 2), b.l)),
+		V4(V4_Inner(M4_Row(a, 3), b.i), V4_Inner(M4_Row(a, 3), b.j), V4_Inner(M4_Row(a, 3), b.k), V4_Inner(M4_Row(a, 3), b.l)),
+	};
+}
 
 typedef struct Rect
 {

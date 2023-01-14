@@ -7,6 +7,7 @@
 #endif
 
 #include <stdarg.h>
+#include <intrin.h>
 
 typedef signed __int8   i8;
 typedef signed __int16  i16;

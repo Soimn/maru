@@ -12,5 +12,6 @@ Tick(Engine_Link* engine_link)
 	Engine->PushRect(Rect_FromPosDim(V2_Add(Engine->mouse_pos, V2(   0, +300)), V2(100, 100)), V4(50, 50, 50, 50),  0, V4(1, 1, 1, 1));
 	Engine->PushRect(Rect_FromPosDim(V2_Add(Engine->mouse_pos, V2(   0, -300)), V2(100, 100)), V4(50, 50, 50, 50), 10, V4(1, 1, 1, 1));
 
-	Engine->PushLine(V2(50, 30), V2(50, 80), 10, V4(1, 0, 1, 1));
+	Engine->PushLine(V2(200, 200), V2_Add(V2(200, 200), V2_Scale(V2_Normalize(V2_Sub(Engine->mouse_pos, V2(200, 200))), 50)), 10, V4(1, 0, 1, 1));
+
 }
